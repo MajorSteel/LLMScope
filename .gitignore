@@ -1,0 +1,32 @@
+# C++ Build Output
+build/
+bin/
+lib/
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+
+# Python Caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+.venv/
+env/
+venv/
+
+# Saved Sessions
+session_*.json
+llmscope_session_*.json
+llmscope_traces_*.csv
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

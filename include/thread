@@ -1,0 +1,82 @@
+#pragma once
+#ifdef _WIN32
+#include <windows.h>
+#include <functional>
+#include <chrono>
+
+namespace std {
+    class thread {
+    public:
+    private:
+        template<typename BoundType>
+        static DWORD WINAPI ThreadProc(LPVOID param) {
+            BoundType* fn = static_cast<BoundType*>(param);
+            (*fn)();
+            delete fn;
+            return 0;
+        }
+
+    public:
+        thread() : handle_(nullptr) {}
+
+        template<typename F, typename... Args>
+        explicit thread(F&& f, Args&&... args) {
+            auto bound = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+            using BoundType = decltype(bound);
+            BoundType* p = new BoundType(std::move(bound));
+
+            handle_ = CreateThread(
+                nullptr, 0,
+                &ThreadProc<BoundType>,
+                p, 0, nullptr
+            );
+        }
+
+        ~thread() {
+            if (handle_) {
+                CloseHandle(handle_);
+            }
+        }
+
+        bool joinable() const {
+            return handle_ != nullptr;
+        }
+
+        void join() {
+            if (handle_) {
+                WaitForSingleObject(handle_, INFINITE);
+                CloseHandle(handle_);
+                handle_ = nullptr;
+            }
+        }
+
+        thread(const thread&) = delete;
+        thread& operator=(const thread&) = delete;
+
+        thread(thread&& other) noexcept {
+            handle_ = other.handle_;
+            other.handle_ = nullptr;
+        }
+
+        thread& operator=(thread&& other) noexcept {
+            if (this != &other) {
+                if (handle_) CloseHandle(handle_);
+                handle_ = other.handle_;
+                other.handle_ = nullptr;
+            }
+            return *this;
+        }
+
+    private:
+        HANDLE handle_;
+    };
+
+    namespace this_thread {
+        template<typename Rep, typename Period>
+        inline void sleep_for(const std::chrono::duration<Rep, Period>& duration) {
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+            Sleep(static_cast<DWORD>(ms.count()));
+        }
+    }
+}
+#endif
