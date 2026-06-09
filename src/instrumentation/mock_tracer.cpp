@@ -75,6 +75,107 @@ void MockTracer::simulation_loop() {
     running_ = false;
 }
 
+static std::vector<SemanticNeighbors> generate_mock_neighbors(int layer, const std::vector<std::string>& active_tokens) {
+    std::vector<SemanticNeighbors> result;
+    for (size_t i = 0; i < active_tokens.size(); ++i) {
+        std::string tok = active_tokens[i];
+        SemanticNeighbors sn;
+        sn.token_index = static_cast<int>(i);
+        sn.token_text = tok;
+
+        // Custom mappings for key tokens
+        if (tok == "LLMScope") {
+            if (layer < 10) {
+                sn.top_k = {
+                    {"LLM", 0.85}, {"Scope", 0.82}, {"scope", 0.78}, {"LLMs", 0.75}, {"Llm", 0.71},
+                    {"scopes", 0.68}, {"SC", 0.65}, {"ope", 0.62}, {"micro", 0.59}, {"tele", 0.55}
+                };
+            } else if (layer < 20) {
+                sn.top_k = {
+                    {"profiler", 0.81}, {"debugger", 0.79}, {"analyzer", 0.76}, {"telemetry", 0.73}, {"tracing", 0.70},
+                    {"monitor", 0.68}, {"tool", 0.65}, {"inspect", 0.62}, {"wrapper", 0.59}, {"logger", 0.55}
+                };
+            } else {
+                sn.top_k = {
+                    {"observability", 0.88}, {"interpretability", 0.84}, {"transparency", 0.80}, {"analysis", 0.77}, {"insight", 0.73},
+                    {"metadata", 0.70}, {"diagnostics", 0.67}, {"metrics", 0.64}, {"dashboard", 0.61}, {"observing", 0.58}
+                };
+            }
+        } else if (tok == "developer") {
+            if (layer < 10) {
+                sn.top_k = {
+                    {"developers", 0.89}, {"develop", 0.82}, {"developing", 0.79}, {"development", 0.76}, {"dev", 0.72},
+                    {"developed", 0.69}, {"devs", 0.66}, {"deve", 0.61}, {"eloper", 0.58}, {"coder", 0.55}
+                };
+            } else if (layer < 20) {
+                sn.top_k = {
+                    {"programmer", 0.86}, {"engineer", 0.83}, {"coder", 0.81}, {"architect", 0.77}, {"creator", 0.74},
+                    {"builder", 0.70}, {"author", 0.67}, {"user", 0.64}, {"professional", 0.61}, {"designer", 0.58}
+                };
+            } else {
+                sn.top_k = {
+                    {"technology", 0.82}, {"software", 0.79}, {"engineering", 0.76}, {"creation", 0.73}, {"productivity", 0.70},
+                    {"innovation", 0.67}, {"industry", 0.64}, {"computing", 0.61}, {"expertise", 0.58}, {"ecosystem", 0.55}
+                };
+            }
+        } else if (tok == "observability") {
+            if (layer < 10) {
+                sn.top_k = {
+                    {"observable", 0.88}, {"observation", 0.81}, {"observe", 0.78}, {"observing", 0.75}, {"observations", 0.72},
+                    {"observes", 0.68}, {"ability", 0.65}, {"ility", 0.61}, {"view", 0.58}, {"monitor", 0.55}
+                };
+            } else if (layer < 20) {
+                sn.top_k = {
+                    {"monitoring", 0.85}, {"telemetry", 0.82}, {"visibility", 0.79}, {"tracing", 0.76}, {"logging", 0.73},
+                    {"diagnostics", 0.70}, {"metrics", 0.67}, {"debugging", 0.64}, {"inspection", 0.61}, {"auditing", 0.58}
+                };
+            } else {
+                sn.top_k = {
+                    {"transparency", 0.86}, {"interpretability", 0.83}, {"understanding", 0.80}, {"explainability", 0.77}, {"reliability", 0.74},
+                    {"assurance", 0.71}, {"governance", 0.68}, {"control", 0.65}, {"insight", 0.62}, {"quality", 0.59}
+                };
+            }
+        } else if (tok == "attention") {
+            if (layer < 10) {
+                sn.top_k = {
+                    {"attending", 0.85}, {"attend", 0.81}, {"attended", 0.77}, {"attentive", 0.74}, {"attent", 0.71},
+                    {"attends", 0.67}, {"intent", 0.64}, {"tension", 0.61}, {"attentions", 0.58}, {"focus", 0.55}
+                };
+            } else if (layer < 20) {
+                sn.top_k = {
+                    {"focus", 0.87}, {"mechanism", 0.82}, {"weight", 0.79}, {"query", 0.76}, {"context", 0.73},
+                    {"relevance", 0.70}, {"salience", 0.67}, {"scoring", 0.64}, {"importance", 0.61}, {"selection", 0.58}
+                };
+            } else {
+                sn.top_k = {
+                    {"cognition", 0.81}, {"alignment", 0.78}, {"representation", 0.75}, {"synthesis", 0.72}, {"intelligence", 0.69},
+                    {"integration", 0.66}, {"dynamics", 0.63}, {"computation", 0.60}, {"architecture", 0.57}, {"semantics", 0.54}
+                };
+            }
+        } else {
+            // Generic token fallback based on layer
+            if (layer < 10) {
+                sn.top_k = {
+                    {tok + "s", 0.85}, {tok + "ing", 0.80}, {tok + "ed", 0.75}, {"the_" + tok, 0.70}, {"a_" + tok, 0.65},
+                    {"sub_" + tok, 0.60}, {tok + "_val", 0.55}, {"un_" + tok, 0.50}, {tok + "er", 0.45}, {tok + "ly", 0.40}
+                };
+            } else if (layer < 20) {
+                sn.top_k = {
+                    {"similar_" + tok, 0.80}, {"related_" + tok, 0.75}, {tok + "_context", 0.70}, {"core_" + tok, 0.65}, {tok + "_state", 0.60},
+                    {"process_" + tok, 0.55}, {"linked_" + tok, 0.50}, {"about_" + tok, 0.45}, {"near_" + tok, 0.40}, {tok + "_base", 0.35}
+                };
+            } else {
+                sn.top_k = {
+                    {"concept_" + tok, 0.75}, {"semantic_" + tok, 0.70}, {"abstract_" + tok, 0.65}, {"theory_" + tok, 0.60}, {"domain_" + tok, 0.55},
+                    {"system_" + tok, 0.50}, {"general_" + tok, 0.45}, {"global_" + tok, 0.40}, {"schema_" + tok, 0.35}, {"model_" + tok, 0.30}
+                };
+            }
+        }
+        result.push_back(sn);
+    }
+    return result;
+}
+
 void MockTracer::generate_token_pass(int token_idx, int total_tokens, int64_t& global_event_id) {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -113,6 +214,7 @@ void MockTracer::generate_token_pass(int token_idx, int total_tokens, int64_t& g
         ev.input_tensor = TensorInfo{{1, current_seq_len}, "int32", static_cast<size_t>(current_seq_len * 4), target_device};
         ev.output_tensor = TensorInfo{{1, current_seq_len, 4096}, "float16", static_cast<size_t>(current_seq_len * 4096 * 2), target_device};
         ev.activation_stats = TensorStats{0.01, 1.02, -2.5, 2.4, 0.0};
+        ev.semantic_neighbors = generate_mock_neighbors(0, active_tokens);
         event_bus_.publish(ev);
     }
 
@@ -185,6 +287,7 @@ void MockTracer::generate_token_pass(int token_idx, int total_tokens, int64_t& g
         }
 
         ev.activation_stats = TensorStats{mean, variance, min_val, max_val, sparsity};
+        ev.semantic_neighbors = generate_mock_neighbors(l, active_tokens);
         event_bus_.publish(ev);
 
         // C. Attention Weights Matrix Event
@@ -280,6 +383,7 @@ void MockTracer::generate_token_pass(int token_idx, int total_tokens, int64_t& g
             ev.input_tensor = TensorInfo{{1, current_seq_len, 4096}, "float16", static_cast<size_t>(current_seq_len * 4096 * 2), target_device};
             ev.output_tensor = TensorInfo{{1, current_seq_len, 4096}, "float16", static_cast<size_t>(current_seq_len * 4096 * 2), target_device};
             ev.activation_stats = TensorStats{0.04, 0.72, -5.2, 5.8, 48.5};
+            ev.semantic_neighbors = generate_mock_neighbors(l, active_tokens);
             event_bus_.publish(ev);
         }
     }

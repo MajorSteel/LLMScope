@@ -316,6 +316,43 @@ const char* DASHBOARD_HTML = R"html(
                 </div>
             </div>
         </section>
+
+        <!-- Token Semantic Explorer View -->
+        <section class="glass p-6 rounded-2xl shadow-xl">
+            <h2 class="text-sm uppercase tracking-wider font-bold text-slate-300 mb-4 flex items-center justify-between">
+                <span>Token Semantic Explorer (Nearest Neighbor Analysis)</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full border border-teal-500/30 text-teal-400 bg-teal-500/10 font-semibold uppercase">Interpretability Module</span>
+            </h2>
+            <div class="flex flex-col lg:flex-row gap-6">
+                <!-- Selector Side -->
+                <div class="flex-1 max-w-md space-y-4">
+                    <div>
+                        <label class="text-xs text-slate-400 font-semibold block mb-1">Select Layer</label>
+                        <select id="semantic-layer" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500">
+                            <option>No layers loaded</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 font-semibold block mb-1">Select Token</label>
+                        <select id="semantic-token" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500">
+                            <option>No tokens available</option>
+                        </select>
+                    </div>
+                    <div class="text-[11px] text-slate-400 bg-slate-900/50 p-3 rounded-lg border border-slate-800 space-y-1">
+                        <p class="font-bold text-slate-300">💡 Navigation Tips:</p>
+                        <p>• Use <b>ArrowLeft / ArrowRight</b> keys to transition between transformer layers (0 - 31).</p>
+                        <p>• Click tokens directly to inspect their embedding space neighborhood.</p>
+                    </div>
+                </div>
+                <!-- Nearest Neighbors Display Side -->
+                <div class="flex-1 border border-slate-800 rounded-xl bg-slate-950 p-4 min-h-[300px] flex flex-col">
+                    <h3 class="text-xs font-bold text-teal-400 uppercase tracking-wider mb-3 pb-2 border-b border-slate-800">Top 10 Nearest Neighbors in Vocabulary Embedding Space</h3>
+                    <div id="semantic-neighbors-list" class="flex-1 space-y-2.5 overflow-y-auto max-h-[350px] pr-1">
+                        <div class="text-slate-500 text-center py-16 text-xs">Select a layer and token to inspect semantic neighbors.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <script>
@@ -367,6 +404,8 @@ const char* DASHBOARD_HTML = R"html(
 
         let loadedLayers = new Set();
         let attentionCache = {};
+        let semanticCache = {};
+        let semanticLayersLoaded = new Set();
         let topologyRendered = false;
         let layersExpanded = false;
 
@@ -528,6 +567,34 @@ const char* DASHBOARD_HTML = R"html(
                             select.appendChild(opt);
                         }
                     });
+
+                    // Populate semantic layer options
+                    traces.forEach(ev => {
+                        const name = ev.payload.layer_name;
+                        if (ev.payload.semantic_neighbors && ev.payload.semantic_neighbors.length > 0) {
+                            semanticCache[name] = ev.payload.semantic_neighbors;
+                            if (!semanticLayersLoaded.has(name)) {
+                                semanticLayersLoaded.add(name);
+                                const semSelect = document.getElementById('semantic-layer');
+                                if (semSelect.children[0] && semSelect.children[0].innerText === "No layers loaded") {
+                                    semSelect.innerHTML = "";
+                                }
+                                const opt = document.createElement('option');
+                                opt.value = name;
+                                opt.innerText = name;
+                                semSelect.appendChild(opt);
+                            }
+                        }
+                    });
+
+                    // Auto-update semantic tokens if loaded for the first time
+                    const semSelect = document.getElementById('semantic-layer');
+                    if (semSelect.selectedIndex >= 0) {
+                        const semTokenSelect = document.getElementById('semantic-token');
+                        if (semTokenSelect.children[0] && semTokenSelect.children[0].innerText === "No tokens available") {
+                            updateSemanticTokens();
+                        }
+                    }
 
                     updateDynamicHeadDropdown();
                     drawAttention();
@@ -1010,6 +1077,113 @@ const char* DASHBOARD_HTML = R"html(
             document.getElementById('compare-file-a').value = "";
             document.getElementById('compare-file-b').value = "";
             updateComparisonTable();
+        });
+
+        function updateSemanticTokens() {
+            const layerName = document.getElementById('semantic-layer').value;
+            const tokenSelect = document.getElementById('semantic-token');
+            const cached = semanticCache[layerName];
+            
+            const currentVal = tokenSelect.value;
+            tokenSelect.innerHTML = "";
+            
+            if (!cached || cached.length === 0) {
+                const opt = document.createElement('option');
+                opt.innerText = "No tokens available";
+                tokenSelect.appendChild(opt);
+                document.getElementById('semantic-neighbors-list').innerHTML = 
+                    '<div class="text-slate-500 text-center py-16 text-xs">No semantic neighbor data found for this layer.</div>';
+                return;
+            }
+            
+            cached.forEach(sn => {
+                const opt = document.createElement('option');
+                opt.value = sn.token_index;
+                opt.innerText = `[${sn.token_index}] "${sn.token_text}"`;
+                tokenSelect.appendChild(opt);
+            });
+            
+            if (currentVal && parseInt(currentVal) < cached.length) {
+                tokenSelect.value = currentVal;
+            } else {
+                tokenSelect.value = 0;
+            }
+            
+            renderSemanticNeighbors();
+        }
+
+        function renderSemanticNeighbors() {
+            const layerName = document.getElementById('semantic-layer').value;
+            const tokenIdx = parseInt(document.getElementById('semantic-token').value);
+            const cached = semanticCache[layerName];
+            const listEl = document.getElementById('semantic-neighbors-list');
+            
+            if (!cached || isNaN(tokenIdx) || !cached[tokenIdx]) {
+                listEl.innerHTML = '<div class="text-slate-500 text-center py-16 text-xs">Select a layer and token to inspect semantic neighbors.</div>';
+                return;
+            }
+            
+            const sn = cached[tokenIdx];
+            if (!sn.top_k || sn.top_k.length === 0) {
+                listEl.innerHTML = '<div class="text-slate-500 text-center py-16 text-xs">No top-K items returned for this token.</div>';
+                return;
+            }
+            
+            listEl.innerHTML = sn.top_k.map((item, idx) => {
+                const score = item.score;
+                const barLength = 10;
+                const filled = Math.round(Math.max(0, Math.min(1.0, score)) * barLength);
+                const empty = barLength - filled;
+                const barStr = "█".repeat(filled) + "░".repeat(empty);
+                
+                return `
+                    <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/40 border border-slate-800 text-xs hover:bg-slate-900/70 transition">
+                        <div class="flex items-center space-x-3 w-1/3">
+                            <span class="text-slate-500 font-semibold mono font-mono">#${idx+1}</span>
+                            <span class="text-emerald-400 font-bold font-mono break-all">${item.token}</span>
+                        </div>
+                        <div class="flex-1 flex items-center space-x-3">
+                            <div class="text-slate-400 font-mono text-[10px] hidden sm:inline">${barStr}</div>
+                            <div class="w-full bg-slate-950 border border-slate-850 rounded-full h-2 overflow-hidden flex">
+                                <div class="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full" style="width: ${Math.max(0, Math.min(100, score * 100))}%"></div>
+                            </div>
+                        </div>
+                        <div class="w-20 text-right font-bold text-teal-400 font-mono pl-3">
+                            ${score.toFixed(4)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Semantic UI Event Listeners
+        document.getElementById('semantic-layer').addEventListener('change', updateSemanticTokens);
+        document.getElementById('semantic-token').addEventListener('change', renderSemanticNeighbors);
+
+        // Arrow keys layer navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                return;
+            }
+            
+            const select = document.getElementById('semantic-layer');
+            if (!select || select.options.length <= 1 || select.children[0]?.innerText === "No layers loaded") {
+                return;
+            }
+            
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                let newIdx = select.selectedIndex - 1;
+                if (newIdx < 0) newIdx = select.options.length - 1;
+                select.selectedIndex = newIdx;
+                updateSemanticTokens();
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                let newIdx = select.selectedIndex + 1;
+                if (newIdx >= select.options.length) newIdx = 0;
+                select.selectedIndex = newIdx;
+                updateSemanticTokens();
+            }
         });
 
         // Export UI listeners

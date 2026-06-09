@@ -76,6 +76,19 @@ struct AnomalyAlert {
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(AnomalyAlert, timestamp, severity, layer_name, description)
 };
 
+struct SemanticItem {
+    std::string token = "";
+    double score = 0.0;
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(SemanticItem, token, score)
+};
+
+struct SemanticNeighbors {
+    int token_index = 0;
+    std::string token_text = "";
+    std::vector<SemanticItem> top_k;
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(SemanticNeighbors, token_index, token_text, top_k)
+};
+
 struct TelemetryEvent {
     std::string event_type; // "model_info", "layer_trace", "attention_weights", "anomaly"
     int64_t timestamp = 0;
@@ -92,6 +105,7 @@ struct TelemetryEvent {
     TensorInfo input_tensor;
     TensorInfo output_tensor;
     TensorStats activation_stats;
+    std::vector<SemanticNeighbors> semantic_neighbors;
 
     // attention_weights fields
     AttentionData attention;
@@ -116,7 +130,8 @@ struct TelemetryEvent {
                 {"latency_ms", e.latency_ms},
                 {"input", e.input_tensor},
                 {"output", e.output_tensor},
-                {"stats", e.activation_stats}
+                {"stats", e.activation_stats},
+                {"semantic_neighbors", e.semantic_neighbors}
             };
         } else if (e.event_type == "attention_weights") {
             j["payload"] = e.attention;
@@ -142,6 +157,9 @@ struct TelemetryEvent {
                 p.at("input").get_to(e.input_tensor);
                 p.at("output").get_to(e.output_tensor);
                 p.at("stats").get_to(e.activation_stats);
+                if (p.contains("semantic_neighbors")) {
+                    p.at("semantic_neighbors").get_to(e.semantic_neighbors);
+                }
             } else if (e.event_type == "attention_weights") {
                 p.get_to(e.attention);
             } else if (e.event_type == "anomaly") {

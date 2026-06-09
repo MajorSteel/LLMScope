@@ -19,6 +19,9 @@ class LLMScopeHookManager:
         self.connected = False
         self.event_id = 1000
         self.layer_latencies = {}
+        self.tokenizer = None
+        self.current_input_ids = []
+        self.embed_weights_norm = None
 
     def connect(self):
         try:
@@ -54,9 +57,25 @@ class LLMScopeHookManager:
                 pass
             self.sock = None
 
-    def register_model(self, name, model):
+    def register_model(self, name, model, tokenizer=None):
         """Walks model layers and registers forward hooks to inject telemetry collectors."""
+        self.tokenizer = tokenizer
         self.connect()
+
+        # Get embedding weight and pre-normalize for cosine similarity
+        self.embed_weights_norm = None
+        if self.tokenizer is not None:
+            try:
+                embed_layer = model.get_input_embeddings()
+                if embed_layer is not None:
+                    W_embed = embed_layer.weight.detach().cpu()
+                    # Pre-normalize: W / ||W||
+                    norm = W_embed.norm(dim=-1, keepdim=True)
+                    norm[norm == 0] = 1.0
+                    self.embed_weights_norm = (W_embed / norm).float()
+                    print("[LLMScope] Vocabulary embeddings captured and pre-normalized.")
+            except Exception as e:
+                print(f"[LLMScope] Could not extract input embeddings for semantic analysis: {e}")
 
         # Gather model parameters metadata
         layers_count = 0
@@ -153,6 +172,57 @@ class LLMScopeHookManager:
                     zero_mask = torch.abs(flat_tensor) < 1e-5
                     stats["sparsity"] = float((zero_mask.sum().item() / flat_tensor.nelement()) * 100.0)
 
+            # Capture input token IDs if this is the embedding layer
+            if layer_type == "Embedding":
+                with torch.no_grad():
+                    self.current_input_ids = input_tensor[0].detach().cpu().tolist() if hasattr(input_tensor, 'tolist') else []
+
+            # Compute nearest semantic neighbors using cosine similarity
+            semantic_neighbors = []
+            if self.embed_weights_norm is not None and isinstance(output_tensor, torch.Tensor) and len(out_shape) == 3:
+                try:
+                    with torch.no_grad():
+                        # shape: [batch, seq_len, hidden_size] -> [seq_len, hidden_size]
+                        h_states = output_tensor[0].detach().cpu().float()
+                        if h_states.shape[-1] == self.embed_weights_norm.shape[1]:
+                            h_norms = h_states.norm(dim=-1, keepdim=True)
+                            h_norms[h_norms == 0] = 1.0
+                            h_states_normalized = h_states / h_norms
+                            
+                            # similarities shape: [seq_len, vocab_size]
+                            similarities = torch.matmul(h_states_normalized, self.embed_weights_norm.T)
+                            top_k_val, top_k_idx = torch.topk(similarities, k=min(10, similarities.shape[-1]), dim=-1)
+                            
+                            for seq_idx in range(h_states.shape[0]):
+                                items = []
+                                for kidx in range(top_k_val.shape[1]):
+                                    idx_val = int(top_k_idx[seq_idx, kidx].item())
+                                    score_val = float(top_k_val[seq_idx, kidx].item())
+                                    token_text = "unknown"
+                                    if self.tokenizer is not None:
+                                        try:
+                                            token_text = self.tokenizer.convert_ids_to_tokens(idx_val)
+                                            if hasattr(self.tokenizer, 'convert_tokens_to_string'):
+                                                token_text = self.tokenizer.convert_tokens_to_string([token_text])
+                                        except:
+                                            token_text = f"id_{idx_val}"
+                                    items.append({"token": token_text, "score": score_val})
+                                    
+                                curr_tok_text = f"tok_{seq_idx}"
+                                if self.tokenizer is not None and seq_idx < len(self.current_input_ids):
+                                    try:
+                                        curr_tok_text = self.tokenizer.decode([self.current_input_ids[seq_idx]])
+                                    except:
+                                        pass
+                                        
+                                semantic_neighbors.append({
+                                    "token_index": seq_idx,
+                                    "token_text": curr_tok_text,
+                                    "top_k": items
+                                })
+                except Exception as e:
+                    print(f"[LLMScope] Cosine similarity error at layer {layer_name}: {e}")
+
             # Send main layer trace event
             self.send_event("layer_trace", {
                 "event_id": self.event_id,
@@ -172,7 +242,8 @@ class LLMScopeHookManager:
                     "size_bytes": out_bytes,
                     "device": device_str.upper()
                 },
-                "stats": stats
+                "stats": stats,
+                "semantic_neighbors": semantic_neighbors
             })
             self.event_id += 1
 

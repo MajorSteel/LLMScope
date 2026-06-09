@@ -116,7 +116,7 @@ def run_telemetry_demo():
 
     # 2. Attach LLMScope telemetry manager
     manager = LLMScopeHookManager(host=args.host, port=args.port)
-    manager.register_model(model_name_display, model)
+    manager.register_model(model_name_display, model, tokenizer=tokenizer)
 
     if not manager.connected:
         print("\n[WARNING] Telemetry server not found on port 5005.")
