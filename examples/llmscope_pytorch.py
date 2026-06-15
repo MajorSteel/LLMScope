@@ -11,7 +11,7 @@ class LLMScopeHookManager:
     Intercepts activations, attention weights, shapes, and latencies,
     and streams them in real-time to the C++ LLMScope TUI/Web dashboard.
     """
-    def __init__(self, host="127.0.0.1", port=5005, sample_top_k=8):
+    def __init__(self, host="127.0.0.1", port=5005, sample_top_k=128):
         self.host = host
         self.port = port
         self.sample_top_k = sample_top_k

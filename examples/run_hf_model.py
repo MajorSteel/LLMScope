@@ -99,7 +99,7 @@ def run_telemetry_demo():
         print(f"Loading HuggingFace model '{args.model}'...")
         try:
             tokenizer = AutoTokenizer.from_pretrained(args.model)
-            model = AutoModelForCausalLM.from_pretrained(args.model)
+            model = AutoModelForCausalLM.from_pretrained(args.model, attn_implementation="eager")
             # Force HF model to cache attention weights in forward pass
             model.config.output_attentions = True
         except Exception as e:
