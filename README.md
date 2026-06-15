@@ -24,6 +24,9 @@ LLMScope is a lightweight, non-invasive telemetry and diagnostic platform design
 ### 3. Benchmarking & Comparative Run Analysis
 ![Comparative Session Analysis](docs/images/session_comparison.png)
 
+### 4. Token Semantic Explorer (Interpretability Module)
+![Token Semantic Explorer](docs/images/semantic_explorer.png)
+
 ---
 
 ## Architecture & Technology Stack
